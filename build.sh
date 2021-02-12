@@ -308,7 +308,7 @@ source "${ROOT_DIR}/build/_setup_env.sh"
 export MAKE_ARGS=$*
 export MAKEFLAGS="-j$(nproc) ${MAKEFLAGS}"
 export MODULES_STAGING_DIR=$(readlink -m ${COMMON_OUT_DIR}/staging)
-export MODULES_PRIVATE_DIR=$(readlink -m ${COMMON_OUT_DIR}/private)
+export MODULES_PRIVATE_DIR=$(readlink -m ${COMMON_OUT_DIR}/${KERNEL_DIR})
 export UNSTRIPPED_DIR=${DIST_DIR}/unstripped
 export KERNEL_UAPI_HEADERS_DIR=$(readlink -m ${COMMON_OUT_DIR}/kernel_uapi_headers)
 export INITRAMFS_STAGING_DIR=${MODULES_STAGING_DIR}/initramfs_staging
