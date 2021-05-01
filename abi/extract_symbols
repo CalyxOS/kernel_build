@@ -24,10 +24,11 @@ import re
 import subprocess
 import sys
 
-_ALWAYS_WHITELISTED = [
+_ALWAYS_INCLUDED = [
     "module_layout",  # is exported even if CONFIG_TRIM_UNUSED_KSYMS is enabled
     "__put_task_struct",  # this allows us to keep `struct task_struct` stable
 ]
+_ABIGAIL_HEADER = "[abi_symbol_list]"
 
 def symbol_sort(symbols):
   # use the method that `sort` uses: case insensitive and ignoring
@@ -35,7 +36,7 @@ def symbol_sort(symbols):
   # yeah, that is a bit brute force, but it gets the job done
 
   def __key(a):
-    """Create a key for comparison of symbols."""
+    """Creates a key for comparison of symbols."""
     # We want to sort underscore prefixed symbols along with those without, but
     # before them. Hence add a trailing underscore for every missing leading
     # one and strip all others.
@@ -53,13 +54,13 @@ def symbol_sort(symbols):
     for idx, c in enumerate(tmp):
       if c != "_":
         break
-    return tmp.replace("_", "") + (5 - idx) * "_"
+    return (tmp.replace("_", "") + (5 - idx) * "_", a)
 
   return sorted(set(symbols), key=__key)
 
 
 def find_binaries(directory):
-  """Locate vmlinux and kernel modules (*.ko)."""
+  """Locates vmlinux and kernel modules (*.ko)."""
   vmlinux = None
   modules = []
   for root, dirs, files in os.walk(directory):
@@ -73,14 +74,14 @@ def find_binaries(directory):
 
 
 def extract_undefined_symbols(modules):
-  """Extract undefined symbols from a list of module files."""
+  """Extracts undefined symbols from a list of module files."""
 
   # yes, we could pass all of them to nm, but I want to avoid hitting shell
   # limits with long lists of modules
   result = {}
   for module in sorted(modules):
     symbols = []
-    out = subprocess.check_output(["nm", "--undefined-only", module],
+    out = subprocess.check_output(["llvm-nm", "--undefined-only", module],
                                   stderr=subprocess.DEVNULL).decode("ascii")
     for line in out.splitlines():
       symbols.append(line.strip().split()[1])
@@ -91,9 +92,9 @@ def extract_undefined_symbols(modules):
 
 
 def extract_exported_symbols(binary):
-  """Extract the ksymtab exported symbols from a kernel binary."""
+  """Extracts the ksymtab exported symbols from a kernel binary."""
   symbols = []
-  out = subprocess.check_output(["nm", "--defined-only", binary],
+  out = subprocess.check_output(["llvm-nm", "--defined-only", binary],
                                 stderr=subprocess.DEVNULL).decode("ascii")
   for line in out.splitlines():
     pos = line.find(" __ksymtab_")
@@ -102,14 +103,20 @@ def extract_exported_symbols(binary):
 
   return symbol_sort(symbols)
 
+def extract_generic_exports(vmlinux, modules):
+  """Extracts the ksymtab exported symbols from vmlinux and a set of modules."""
+  symbols = extract_exported_symbols(vmlinux)
+  for module in modules:
+    symbols.extend(extract_exported_symbols(module))
+  return symbols
 
 def extract_exported_in_modules(modules):
-  """Extract the ksymtab exported symbols for a list of kernel modules."""
+  """Extracts the ksymtab exported symbols for a list of kernel modules."""
   return {module: extract_exported_symbols(module) for module in modules}
 
 
 def report_missing(module_symbols, exported):
-  """Report missing symbols that are undefined, but not know in any binary."""
+  """Reports missing symbols that are undefined, but not known in any binary."""
   for module, symbols in module_symbols.items():
     for symbol in symbols:
       if symbol not in exported:
@@ -117,35 +124,73 @@ def report_missing(module_symbols, exported):
             symbol, module))
 
 
-def create_whitelist(whitelist, undefined_symbols, exported,
-                     emit_module_whitelists, module_grouping):
-  """Create a symbol whitelist for libabigail."""
+def add_dependent_symbols(module_symbols, exported):
+  """Checks the undefined symbols, and adds more to enforce missing dependencies."""
+  for module, symbols in module_symbols.items():
+    syms = []
+    for symbol in symbols:
+
+      # Tracepoints are exposed in the ABI using their matching struct
+      # tracepoint. Sadly this exposes callback functions as void * pointers,
+      # which make the ABI tooling ineffective to monitor tracepoint changes.
+      # To enable ABI checks covering tracepoint, add the matching __traceiter
+      # symbols to the symbol list as they are defined with full types.
+      if not symbol.startswith('__tracepoint_'):
+        continue
+      cur = symbol.replace('__tracepoint_', '__traceiter_')
+      if (cur not in exported) or (cur in symbols):
+        continue
+      syms.append(cur)
+    module_symbols[module].extend(syms)
+
+
+def read_symbol_list(symbol_list):
+  """Reads a previously created libabigail symbol symbol list."""
+  symbols = []
+  with open(symbol_list) as wl:
+    for line in [l.strip() for l in wl]:
+      if not line or line.startswith("#") or line.startswith("["):
+        continue
+      symbols.append(line)
+  return symbols
+
+
+def create_symbol_list(symbol_list, undefined_symbols, exported,
+                       emit_module_symbol_lists, module_grouping,
+                       additions_only):
+  """Creates a symbol symbol list for libabigail."""
+  precious_symbols = set()
+  if additions_only:
+    precious_symbols.update(read_symbol_list(symbol_list))
+
   symbol_counter = collections.Counter(
       itertools.chain.from_iterable(undefined_symbols.values()))
 
-
-  with open(whitelist, "w") as wl:
+  with open(symbol_list, "w") as wl:
 
     common_wl_section = symbol_sort([
         symbol for symbol, count in symbol_counter.items()
         if (count > 1 or not module_grouping) and symbol in exported
-    ] + _ALWAYS_WHITELISTED)
+    ] + _ALWAYS_INCLUDED)
 
     # write the header
-    wl.write("[abi_whitelist]\n")
+    wl.write(_ABIGAIL_HEADER)
+    wl.write("\n")
     if module_grouping:
       wl.write("# commonly used symbols\n")
     wl.write("  ")
     wl.write("\n  ".join(common_wl_section))
     wl.write("\n")
+    precious_symbols.difference_update(common_wl_section)
 
     for module, symbols in undefined_symbols.items():
 
-      if emit_module_whitelists:
-        mod_wl_file = whitelist + "_" + os.path.splitext(module)[0]
+      if emit_module_symbol_lists:
+        mod_wl_file = symbol_list + "_" + os.path.splitext(module)[0]
         with open(mod_wl_file, "w") as mod_wl:
           # write the header
-          mod_wl.write("[abi_whitelist]\n  ")
+          mod_wl.write(_ABIGAIL_HEADER)
+          mod_wl.write("\n  ")
           mod_wl.write("\n  ".join([s for s in symbols if s in exported]))
           mod_wl.write("\n")
 
@@ -160,10 +205,16 @@ def create_whitelist(whitelist, undefined_symbols, exported,
       wl.write("\n# required by {}\n  ".format(module))
       wl.write("\n  ".join(new_wl_section))
       wl.write("\n")
+      precious_symbols.difference_update(new_wl_section)
+
+    if precious_symbols:
+      wl.write("\n# preserved by --additions-only\n  ")
+      wl.write("\n  ".join(symbol_sort(precious_symbols)))
+      wl.write("\n")
 
 
 def main():
-  """Extract the required symbols for a directory full of kernel modules."""
+  """Extracts the required symbols for a directory full of kernel modules."""
   parser = argparse.ArgumentParser()
   parser.add_argument(
       "directory",
@@ -175,38 +226,42 @@ def main():
       "--skip-report-missing",
       action="store_false",
       dest="report_missing",
-      default=True,
       help="Do not report symbols required by modules, but missing from vmlinux"
   )
 
   parser.add_argument(
       "--include-module-exports",
       action="store_true",
-      default=False,
       help="Include inter-module symbols")
 
   parser.add_argument(
-      "--whitelist",
-      default=None,
-      help="The whitelist to create")
+      "--full-gki-abi",
+      action="store_true",
+      help="Assume all vmlinux and GKI module symbols are part of the ABI")
+
+  parser.add_argument(
+      "--symbol-list", "--whitelist",
+      help="The symbol list to create")
+
+  parser.add_argument(
+      "--additions-only",
+      action="store_true",
+      help="Read the existing symbol list and ensure no symbols get removed")
 
   parser.add_argument(
       "--print-modules",
       action="store_true",
-      default=False,
       help="Emit the names of the processed modules")
 
   parser.add_argument(
-      "--emit-module-whitelists",
+      "--emit-module-symbol-lists", "--emit-module-whitelists",
       action="store_true",
-      default=False,
-      help="Emit a separate whitelist for each module")
+      help="Emit a separate symbol list for each module")
 
   parser.add_argument(
       "--skip-module-grouping",
       action="store_false",
       dest="module_grouping",
-      default=True,
       help="Do not group symbols by module.")
 
   parser.add_argument(
@@ -216,6 +271,10 @@ def main():
       help="Only process modules matching the filter. Can be passed multiple times."
   )
 
+  parser.add_argument(
+      "--gki-modules",
+      help="List of GKI modules which must be provided when the search directory contains both vendor and GKI modules")
+
   args = parser.parse_args()
 
   if not os.path.isdir(args.directory):
@@ -223,12 +282,12 @@ def main():
           args.directory)
     return 1
 
-  if args.emit_module_whitelists and not args.whitelist:
-    print("Emitting module whitelists requires the --whitelist parameter.")
+  if args.emit_module_symbol_lists and not args.symbol_list:
+    print("Emitting module symbol lists requires the --symbol-list parameter.")
     return 1
 
-  if args.whitelist is None:
-    args.whitelist = "/dev/stdout"
+  if args.symbol_list is None:
+    args.symbol_list = "/dev/stdout"
 
   # Locate the Kernel Binaries
   vmlinux, modules = find_binaries(args.directory)
@@ -239,6 +298,15 @@ def main():
             [re.search(f, os.path.basename(mod)) for f in args.module_filters])
     ]
 
+  # Partition vendor and GKI modules in two lists
+  gki_modules = []
+  if args.gki_modules is not None:
+    with open(args.gki_modules) as f:
+      gki_modules = [ os.path.basename(mod) for mod in f.read().splitlines() ]
+    gki_modules = [ mod for mod in modules if os.path.basename(mod) in gki_modules ]
+    modules = [ mod for mod in modules if mod not in gki_modules ]
+
+
   if vmlinux is None or not os.path.isfile(vmlinux):
     print("Could not find a suitable vmlinux file.")
     return 1
@@ -247,14 +315,16 @@ def main():
   undefined_symbols = extract_undefined_symbols(modules)
 
   # Get the actually defined and exported symbols
-  exported_in_vmlinux = extract_exported_symbols(vmlinux)
-  exported_in_modules = extract_exported_in_modules(modules)
+  generic_exports = extract_generic_exports(vmlinux, gki_modules)
+  local_exports = extract_exported_in_modules(modules)
 
-  # Build the list of all exported symbols (vmlinux + modules)
+  # Build the list of all exported symbols (generic and local)
   all_exported = list(
-      itertools.chain.from_iterable(exported_in_modules.values()))
-  all_exported.extend(exported_in_vmlinux)
+      itertools.chain.from_iterable(local_exports.values()))
+  all_exported.extend(generic_exports)
   all_exported = set(all_exported)
+
+  add_dependent_symbols(undefined_symbols, all_exported)
 
   # For sanity, check for inconsistencies between required and exported symbols
   # Do not do this analysis if module_filters are in place as likely
@@ -262,16 +332,18 @@ def main():
   if args.report_missing and not args.module_filters:
     report_missing(undefined_symbols, all_exported)
 
-  # If specified, create the whitelist
-  if args.whitelist:
-    create_whitelist(
-        args.whitelist, undefined_symbols,
-        all_exported if args.include_module_exports else exported_in_vmlinux,
-        args.emit_module_whitelists,
-        args.module_grouping)
+  # If specified, create the symbol list
+  if args.symbol_list:
+    create_symbol_list(
+        args.symbol_list,
+        { "full-gki-abi": generic_exports } if args.full_gki_abi else undefined_symbols,
+        all_exported if args.include_module_exports else generic_exports,
+        args.emit_module_symbol_lists,
+        args.module_grouping,
+        args.additions_only)
 
   if args.print_modules:
-    print("These modules have been considered when creating the whitelist:")
+    print("These modules have been considered when creating the symbol list:")
     print("  " +
           "\n  ".join(sorted([os.path.basename(mod) for mod in modules])))
 

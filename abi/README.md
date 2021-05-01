@@ -59,52 +59,13 @@ releases. In order to obtain this branch via `repo`, execute
 
 ### 2. Provide any prerequisites
 
-**NOTE**: Googlers might want to follow the steps in
-[go/kernel-abi-monitoring](http://go/kernel-abi-monitoring) to use a prebuilt
-libabigail distribution.
-
 The ABI tooling makes use of [libabigail](https://sourceware.org/libabigail/),
-a library and collection of tools to analyze binaries. In order to use the
-tooling, users are required to provide a functional libabigail installation.
-The released version of your Linux distribution might not be a supported one;
-hence, it is recommended way to use the `bootstrap` script which can be found in
-this directory. The `bootstrap` script automates the process of acquiring and
-building a valid libabigail distribution and needs to be executed without any
-arguments like so:
+a library and collection of tools to analyze binaries. A suitable set of
+prebuilt binaries comes along with the kernel-build-tools and will
+automatically be used when using `build_abi.sh`.
 
-```
-  $ build/abi/bootstrap
-```
-
-The script will ensure the following system prerequisites are installed along
-with their dependencies:
-
- - autoconf
- - libtool
- - libxml2-dev
- - pkg-config
- - python3
-
-**NOTE**: At the moment, only apt based package managers are supported, but
-`bootstrap` provides some hints to help users that have other package
-managers.
-
-The script continues with acquiring the sources for the correct versions of
-*elfutils* and *libabigail* and will build the required binaries. At the very
-end the script will print instructions to add the binaries to the local
-`${PATH}`. The output will look similar to:
-
-```
-  NOTE: Export the following environment before running the executables:
-
-  export PATH="/src/kernel/build/abi/abigail-inst/d7ae619f/bin:${PATH}"
-  export LD_LIBRARY_PATH="/src/kernel/build/abi/abigail-inst/d7ae619f/lib:/src/kernel/build/abi/abigail-inst/d7ae619f/lib/elfutils:${LD_LIBRARY_PATH}"
-```
-
-**NOTE**: It is probably a good idea to save these instructions to reuse the
-prebuilt binaries in a later session.
-
-Follow the instructions to enable the prerequisites in your environment.
+For utilizing the lower level tooling (such as `dump_abi`), please ensure to
+add the kernel-build-tools to the `PATH`.
 
 ### 3. Build the kernel and its ABI representation
 
@@ -164,7 +125,7 @@ with the following content would limit ABI analysis to the ELF symbols with the
 names `symbol1` and `symbol2`:
 
 ```
-  [abi_whitelist]
+  [abi_symbol_list]
     symbol1
     symbol2
 ```
@@ -181,12 +142,14 @@ relative to the kernel source directory (`$KERNEL_DIR`). In order to allow a
 certain level of organization, additional symbol list files can be specified by
 using `ADDITIONAL_KMI_SYMBOL_LISTS=` in the `build.config`. Similarly, it refers
 to symbol lists in the `$KERNEL_DIR` and multiple files need to be separated by
-whitespaces.
+whitespace.
 
 In order to **create an initial symbol list or to update an existing one**, the
-script `extract_symbols` is provided. When run pointing at a `DIST_DIR` of an
-Android Kernel build, it will extract the symbols that are exported from
-vmlinux _and_ are required by any module in the tree.
+`build_abi.sh` script must be used with the `--update-symbol-list` parameter.
+
+When run with an appropriate configuration, it will build the kernel and extract
+the symbols that are exported from vmlinux and GKI modules _and_ are required by
+any other module in the tree.
 
 Consider `vmlinux` exporting the following symbols (usually done via the
 EXPORT_SYMBOL* macros):
@@ -197,8 +160,8 @@ EXPORT_SYMBOL* macros):
   func3
 ```
 
-Also, consider there are two modules `modA.ko` and `modB.ko` which require the
-following symbols (i.e. `undefined` entries in the symbol table):
+Also, consider there are two vendor modules `modA.ko` and `modB.ko` which
+require the following symbols (i.e. `undefined` entries in the symbol table):
 
 ```
   modA.ko:    func1 func2
@@ -210,29 +173,24 @@ as these are used by an external module. On the contrary, while `func3` is
 exported it is not actively used (i.e. required) by any module. The symbol list
 would therefore contain `func1` and `func2` only.
 
-`extract_symbols` offers a flag to update an existing or create a new symbol list
-based on the above analysis: `--whitelist <path/to/abi_symbol_list>`.
-
-In order to update an existing symbol list based on a built Kernel tree, run
-`extract_symbols` as follows. The example uses the *common-android-mainline*
-branch of the Android Common Kernels following the official [build
-documentation](https://source.android.com/setup/build/building-kernels) and
-updates the symbol lists for the GKI aarch64 Kernel.
+In order to create or update an existing symbol list, `build_abi.sh` must be
+run as follows:
 
 ```
-  (build the kernel)
-  $ BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
-
-  (update/create the symbol list)
-  $ build/abi/extract_symbols out/android-mainline/dist --whitelist common/android/abi_gki_aarch64
+  $ BUILD_CONFIG=path/to/build.config.device build/build_abi.sh --update-symbol-list
 ```
 
-**NOTE**: Be aware that `extract_symbols` recursively discovers Kernel modules
-by extension (*.ko) and considers all found ones. Orphan Kernel modules from
-prior runs might lead to incorrect results. Hence, make sure the directory you
-pass on to `extract_symbols` contains only the vmlinux and the modules you want
-it to consider.
+In this example, `build.config.device` must include several configuration options:
+ - `vmlinux` must be in the `FILES` list;
+ - `KMI_SYMBOL_LIST` must be set and pointing at the KMI symbol list to update;
+ - `GKI_MODULES_LIST` should be set and pointing at the list of GKI modules. This
+   path is usually `android/gki_aarch64_modules`.
 
+**NOTE**: the `GKI_MODULES_LIST` option must be set in all vendor/OEM
+`build.config` configurations downstream, but *not* in the upstream GKI
+`build.config.gki.*`. `GKI_MODULES_LIST` is used in downstream builds to
+differentiate vendor/OEM modules from GKI modules, which is not necessary
+in upstream GKI builds where all modules are GKI modules.
 
 Working with the lower level ABI tooling
 ----------------------------------------
@@ -277,11 +235,11 @@ non-zero value in case the ABIs compared are incompatible.
 ### Using KMI symbol lists
 
 To filter dumps created with `dump_abi` or filter symbols compared with
-`diff_abi`, each of those tools provides a parameter `--kmi-whitelist` that
+`diff_abi`, each of those tools provides a parameter `--kmi-symbol-list` that
 takes a path to a KMI symbol list file:
 
 ```
-  $ dump_abi --linux-tree path/to/out --out-file /path/to/abi.xml --kmi-whitelist /path/to/symbol_list
+  $ dump_abi --linux-tree path/to/out --out-file /path/to/abi.xml --kmi-symbol-list /path/to/symbol_list
 ```
 
 ### Comparing Kernel Binaries against the GKI reference KMI
@@ -297,7 +255,7 @@ compare the local binaries' representation to e.g. the 5.4 representation:
 ```
 
 `gki_check` uses parameter names consistent with `dump_abi` and `diff_abi`.
-Hence, `--kmi-whitelist path/to/kmi_symbol_list` can be used to limit that
+Hence, `--kmi-symbol-list path/to/kmi_symbol_list` can be used to limit that
 comparison to allowed symbols by passing a KMI symbol list.
 
 **NOTE:** When comparing the ABI representations between the GKI Kernel and the
@@ -395,14 +353,6 @@ any changes to the ABI, create the ABI representation with the patch applied and
 use `diff_abi` to compare it to the expected ABI for that particular source tree
 / configuration.
 
-Caveats and known issues
-------------------------
-
-Version 1.8 of libabigail contains most, but not all currently required patches
-to properly work on clang-built aarch64 Android kernels. Using a recent mm-next
-is a sufficient workaround for that. The `bootstrap` script refers to a
-sufficient commit from upstream.
-
 Enforcing the KMI using module versioning
 -----------------------------------------
 
@@ -491,8 +441,9 @@ For example, to check the CRC value for the `module_layout` symbol,
 If you get a CRC mismatch when loading the module, here is how to you fix it:
 
 1. Build the GKI and your kernels, but add the `KBUILD_SYMTYPES=1` in front of
-   the command you use to build the kernel. This will generate a `.symtypes`
-   files for each `.o` file. For example:
+   the command you use to build the kernel, if needed. Note that `build_abi.sh`
+   does this already. This will generate a `.symtypes` files for each `.o` file.
+   For example:
 
     ```
       $ KBUILD_SYMTYPES=1 \
