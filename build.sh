@@ -1083,18 +1083,19 @@ if [ -n "${MODULES}" ]; then
       cp -p ${FILE} ${DIST_DIR}
     done
   fi
+
+  rm -rf ${INITRAMFS_STAGING_DIR}
+  create_modules_staging "${MODULES_LIST}" ${MODULES_STAGING_DIR} \
+    ${INITRAMFS_STAGING_DIR} "${MODULES_BLOCKLIST}" "-e"
+
+  MODULES_ROOT_DIR=$(echo ${INITRAMFS_STAGING_DIR}/lib/modules/*)
+  cp ${MODULES_ROOT_DIR}/modules.load ${DIST_DIR}/modules.load
+  cp ${MODULES_ROOT_DIR}/modules.load ${DIST_DIR}/vendor_boot.modules.load
+  echo "${MODULES_OPTIONS}" > ${MODULES_ROOT_DIR}/modules.options
+
   if [ "${BUILD_INITRAMFS}" = "1" ]; then
     echo "========================================================"
     echo " Creating initramfs"
-    rm -rf ${INITRAMFS_STAGING_DIR}
-    create_modules_staging "${MODULES_LIST}" ${MODULES_STAGING_DIR} \
-      ${INITRAMFS_STAGING_DIR} "${MODULES_BLOCKLIST}" "-e"
-
-    MODULES_ROOT_DIR=$(echo ${INITRAMFS_STAGING_DIR}/lib/modules/*)
-    cp ${MODULES_ROOT_DIR}/modules.load ${DIST_DIR}/modules.load
-    cp ${MODULES_ROOT_DIR}/modules.load ${DIST_DIR}/vendor_boot.modules.load
-    echo "${MODULES_OPTIONS}" > ${MODULES_ROOT_DIR}/modules.options
-
     mkbootfs "${INITRAMFS_STAGING_DIR}" >"${MODULES_STAGING_DIR}/initramfs.cpio"
     ${RAMDISK_COMPRESS} "${MODULES_STAGING_DIR}/initramfs.cpio" >"${DIST_DIR}/initramfs.img"
   fi
