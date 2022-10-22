@@ -182,7 +182,9 @@ for prebuilt_bin in "${prebuilts_paths[@]}"; do
 done
 export PATH
 
-unset LD_LIBRARY_PATH
+if [ "${HERMETIC_TOOLCHAIN:-0}" -eq 1 ]; then
+  unset LD_LIBRARY_PATH
+fi
 unset PYTHONPATH
 unset PYTHONHOME
 unset PYTHONSTARTUP
