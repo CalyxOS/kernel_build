@@ -881,7 +881,7 @@ find ${ROOT_DIR} -name TEST_MAPPING \
   -not -path "${ROOT_DIR}/\.repo*" \
   -not -path "${ROOT_DIR}/out*" \
   > ${TEST_MAPPING_FILES}
-soong_zip -o ${DIST_DIR}/test_mappings.zip -C ${ROOT_DIR} -l ${TEST_MAPPING_FILES}
+${ROOT_DIR}/build/kernel/build-tools/path/linux-x86/soong_zip -o ${DIST_DIR}/test_mappings.zip -C ${ROOT_DIR} -l ${TEST_MAPPING_FILES}
 
 if [ -n "${EXTRA_CMDS}" ]; then
   echo "========================================================"
