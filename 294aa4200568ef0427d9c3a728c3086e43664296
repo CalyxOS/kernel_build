@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "c0751dfd_fd351837",
+        "filename": "/COMMIT_MSG",
+        "patchSetId": 1
+      },
+      "lineNbr": 10,
+      "author": {
+        "id": 1000000
+      },
+      "writtenOn": "2022-10-31T18:47:24Z",
+      "side": 1,
+      "message": "Something in our setting not setting up the right PATH then?\n\nThat build-tools dir has a bunch of other things too.",
+      "revId": "294aa4200568ef0427d9c3a728c3086e43664296",
+      "serverId": "35266860-6252-469c-a67d-185064479fc0"
+    }
+  ]
+}
