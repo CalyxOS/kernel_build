@@ -1014,9 +1014,9 @@ if [ -n "${MODULES}" ]; then
 
   MODULES_ROOT_DIR=$(echo ${INITRAMFS_STAGING_DIR}/lib/modules/*)
   cp ${MODULES_ROOT_DIR}/modules.load ${DIST_DIR}/modules.load
-  if [ -n "${BUILD_VENDOR_BOOT_IMG}" ]; then
+  if [ -n "${BUILD_VENDOR_BOOT_IMG}" ] || [ -n "${USES_VENDOR_BOOT_IMG}" ]; then
     cp ${MODULES_ROOT_DIR}/modules.load ${DIST_DIR}/vendor_boot.modules.load
-  elif [ -n "${BUILD_VENDOR_KERNEL_BOOT}" ]; then
+  elif [ -n "${BUILD_VENDOR_KERNEL_BOOT}" ] || [ -n "${USES_VENDOR_KERNEL_BOOT}" ]; then
     cp ${MODULES_ROOT_DIR}/modules.load ${DIST_DIR}/vendor_kernel_boot.modules.load
   fi
   echo "${MODULES_OPTIONS}" > ${MODULES_ROOT_DIR}/modules.options
