@@ -12,22 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+# Test utilities.
 
 exports_files([
-    "fake_modules_options.txt",
-    "kernel_build_test.py",
-    "kernel_module_test.py",
-    "initramfs_modules_options_test.py",
+    "contain_lines_test.py",
 ])
-
-bzl_library(
-    name = "artifact_tests",
-    srcs = [
-        "kernel_test.bzl",
-    ],
-    visibility = ["//build/kernel/kleaf:__subpackages__"],
-    deps = [
-        "//build/kernel/kleaf/impl",
-    ],
-)

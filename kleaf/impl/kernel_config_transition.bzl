@@ -12,22 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+# Incoming edge transition for `kernel_config`.
+# If --kasan and --lto=default, --lto becomes none.
+# See https://bazel.build/rules/config#incoming-edge-transitions
 
-exports_files([
-    "fake_modules_options.txt",
-    "kernel_build_test.py",
-    "kernel_module_test.py",
-    "initramfs_modules_options_test.py",
-])
+_LTO_FLAG = "//build/kernel/kleaf:lto"
+_KASAN_FLAG = "//build/kernel/kleaf:kasan"
 
-bzl_library(
-    name = "artifact_tests",
-    srcs = [
-        "kernel_test.bzl",
-    ],
-    visibility = ["//build/kernel/kleaf:__subpackages__"],
-    deps = [
-        "//build/kernel/kleaf/impl",
-    ],
+def _impl(settings, attr):
+    if settings[_KASAN_FLAG] and settings[_LTO_FLAG] == "default":
+        return {_LTO_FLAG: "none"}
+
+    return None  # keep values
+
+kernel_config_transition = transition(
+    implementation = _impl,
+    inputs = [_KASAN_FLAG, _LTO_FLAG],
+    outputs = [_LTO_FLAG],
 )

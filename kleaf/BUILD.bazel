@@ -30,10 +30,22 @@ string_flag(
     values = LTO_VALUES,
 )
 
+string_flag(
+    name = "cache_dir",
+    build_setting_default = "",
+)
+
 # If true, set `KBUILD_SYMTYPES=1` for kernel_build() with
 # kbuild_symtypes="auto".
 bool_flag(
     name = "kbuild_symtypes",
+    build_setting_default = False,
+)
+
+# If true, enable kasan. This assumes --lto=none, but :print_flags only shows
+# values from the command line.
+bool_flag(
+    name = "kasan",
     build_setting_default = False,
 )
 
@@ -66,6 +78,7 @@ _config_values = (
 print_flags(
     name = "print_flags",
     flags = [
+        ":kasan",
         ":kbuild_symtypes",
         ":lto",
     ] + [":config_" + value for value in _config_values],

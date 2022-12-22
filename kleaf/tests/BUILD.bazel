@@ -17,5 +17,6 @@ test_suite(
     tests = [
         "//build/kernel/kleaf/tests/kernel_build_config_test",
         "//build/kernel/kleaf/tests/kernel_build_test",
+        "//build/kernel/kleaf/tests/kernel_config_test",
     ],
 )
