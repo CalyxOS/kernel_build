@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "8b4d808c_bb3f70eb",
+        "filename": "abi/symbols.deny",
+        "patchSetId": 1
+      },
+      "lineNbr": 29,
+      "author": {
+        "id": 1000004
+      },
+      "writtenOn": "2023-03-14T20:11:48Z",
+      "side": 1,
+      "message": "As long as this doesn\u0027t break any older kernel builds",
+      "revId": "e7ca65eb49951a39bd1b17596d964c113059ec51",
+      "serverId": "35266860-6252-469c-a67d-185064479fc0"
+    }
+  ]
+}
