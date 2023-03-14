@@ -24,3 +24,6 @@
 # Kprobe needs to be left alone
 disable_kprobe		kprobe should not be touched by any driver
 enable_kprobe		kprobe should not be touched by any driver
+
+# drivers should not care about memory pages
+PageMovable	Drivers should not care about memory pages
